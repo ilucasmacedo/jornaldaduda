@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📰 Jornal da Duda - Notícias das Crianças</title>
+    <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, orderBy, query, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        
+        // Configuração do Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyBIsQ0aIrZHLivQKXZ6VeusbhcWW_A0xD0",
+            authDomain: "jornal-da-duda.firebaseapp.com",
+            projectId: "jornal-da-duda",
+            storageBucket: "jornal-da-duda.firebasestorage.app",
+            messagingSenderId: "940947388419",
+            appId: "1:940947388419:web:74c02d216ea7362dcbb636",
+            measurementId: "G-5L7FFHCPDJ"
+        };
+
+        // Inicializar Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Classe principal do Jornal
+        class JornalFirebase {
+            constructor() {
+                this.currentImagePreview = null;
+                this.init();
+            }
+
+            async init() {
+                this.setupEventListeners();
+                await this.loadNews();
+                this.showWelcomeMessage();
+            }
+
+            setupEventListeners() {
+                // Botões principais
+                document.getElementById('publishBtn').addEventListener('click', () => this.publishNews());
+                document.getElementById('clearBtn').addEventListener('click', () => this.clearForm());
+                document.getElementById('toggleModeBtn').addEventListener('click', () => this.toggleMode());
+
+                // Preview de imagem
+                document.getElementById('newsImage').addEventListener('change', (e) => this.handleImagePreview(e));
+
+                // Validação em tempo real
+                document.getElementById('newsTitle').addEventListener('input', (e) => this.validateField(e.target, 'title'));
+                document.getElementById('newsContent').addEventListener('input', (e) => this.validateField(e.target, 'content'));
+                document.getElementById('reporterName').addEventListener('input', (e) => this.validateField(e.target, 'name'));
+
+                // Teclas de atalho
+                document.addEventListener('keydown', (e) => {
+                    if (e.ctrlKey && e.key === 'Enter') {
+                        this.publishNews();
+                    }
+                });
+            }
+
+            validateField(field, type) {
+                const value = field.value.trim();
+                let isValid = true;
+                let message = '';
+
+                switch (type) {
+                    case 'title':
+                        if (value.length < 5) {
+                            message = 'O título deve ter pelo menos 5 caracteres';
+                            isValid = false;
+                        } else if (value.length > 100) {
+                            message = 'O título deve ter no máximo 100 caracteres';
+                            isValid = false;
+                        }
+                        break;
+                    case 'content':
+                        if (value.length < 20) {
+                            message = 'A notícia deve ter pelo menos 20 caracteres';
+                            isValid = false;
+                        } else if (value.length > 2000) {
+                            message = 'A notícia deve ter no máximo 2000 caracteres';
+                            isValid = false;
+                        }
+                        break;
+                    case 'name':
+                        if (value.length < 2) {
+                            message = 'O nome deve ter pelo menos 2 caracteres';
+                            isValid = false;
+                        } else if (value.length > 50) {
+                            message = 'O nome deve ter no máximo 50 caracteres';
+                            isValid = false;
+                        }
+                        break;
+                }
+
+                this.showFieldValidation(field, isValid, message);
+                return isValid;
+            }
+
+            showFieldValidation(field, isValid, message) {
+                field.classList.remove('valid', 'invalid');
+                
+                const existingMessage = field.parentNode.querySelector('.validation-message');
+                if (existingMessage) {
+                    existingMessage.remove();
+                }
+
+                if (message) {
+                    field.classList.add(isValid ? 'valid' : 'invalid');
+                    
+                    const messageElement = document.createElement('div');
+                    messageElement.className = `validation-message ${isValid ? 'valid' : 'invalid'}`;
+                    messageElement.textContent = message;
+                    messageElement.style.cssText = `
+                        font-size: 0.8rem;
+                        margin-top: 5px;
+                        color: ${isValid ? '#4ecdc4' : '#ff6b6b'};
+                        font-weight: bold;
+                    `;
+                    
+                    field.parentNode.appendChild(messageElement);
+                }
+            }
+
+            handleImagePreview(event) {
+                const file = event.target.files[0];
+                const preview = document.getElementById('imagePreview');
+                
+                if (file) {
+                    if (!file.type.startsWith('image/')) {
+                        this.showNotification('Por favor, selecione apenas arquivos de imagem!', 'error');
+                        event.target.value = '';
+                        return;
+                    }
+
+                    if (file.size > 5 * 1024 * 1024) {
+                        this.showNotification('A imagem deve ter no máximo 5MB!', 'error');
+                        event.target.value = '';
+                        return;
+                    }
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        preview.innerHTML = `<img src="${e.target.result}" alt="Preview da imagem">`;
+                        this.currentImagePreview = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    preview.innerHTML = '<p>Nenhuma imagem selecionada</p>';
+                    this.currentImagePreview = null;
+                }
+            }
+
+            async publishNews() {
+                const title = document.getElementById('newsTitle').value.trim();
+                const content = document.getElementById('newsContent').value.trim();
+                const reporterName = document.getElementById('reporterName').value.trim();
+
+                if (!this.validateField(document.getElementById('newsTitle'), 'title') ||
+                    !this.validateField(document.getElementById('newsContent'), 'content') ||
+                    !this.validateField(document.getElementById('reporterName'), 'name')) {
+                    this.showNotification('Por favor, corrija os erros no formulário!', 'error');
+                    return;
+                }
+
+                try {
+                    const docRef = await addDoc(collection(db, "noticias"), {
+                        title: title,
+                        content: content,
+                        reporterName: reporterName,
+                        image: this.currentImagePreview,
+                        likes: 0,
+                        timestamp: serverTimestamp()
+                    });
+
+                    this.showNotification('🎉 Notícia publicada com sucesso!', 'success');
+                    this.clearForm();
+                    await this.loadNews();
+
+                    setTimeout(() => {
+                        const firstNewsCard = document.querySelector('.news-card');
+                        if (firstNewsCard) {
+                            firstNewsCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 500);
+                } catch (error) {
+                    console.error("Erro ao publicar notícia: ", error);
+                    this.showNotification('Erro ao publicar notícia!', 'error');
+                }
+            }
+
+            clearForm() {
+                document.getElementById('newsTitle').value = '';
+                document.getElementById('newsContent').value = '';
+                document.getElementById('reporterName').value = '';
+                document.getElementById('newsImage').value = '';
+                document.getElementById('imagePreview').innerHTML = '<p>Nenhuma imagem selecionada</p>';
+                this.currentImagePreview = null;
+
+                const fields = ['newsTitle', 'newsContent', 'reporterName'];
+                fields.forEach(fieldId => {
+                    const field = document.getElementById(fieldId);
+                    field.classList.remove('valid', 'invalid');
+                    const message = field.parentNode.querySelector('.validation-message');
+                    if (message) message.remove();
+                });
+
+                this.showNotification('Formulário limpo! ✨', 'info');
+            }
+
+            async loadNews() {
+                const newsGrid = document.getElementById('newsGrid');
+                
+                try {
+                    const q = query(collection(db, "noticias"), orderBy("timestamp", "desc"));
+                    const querySnapshot = await getDocs(q);
+                    
+                    if (querySnapshot.empty) {
+                        newsGrid.innerHTML = `
+                            <div class="no-news">
+                                <h3>📰 Nenhuma notícia ainda!</h3>
+                                <p>Seja o primeiro a escrever uma notícia incrível!</p>
+                                <div class="emoji-suggestions">
+                                    <span>💡 Dica: Você pode escrever sobre:</span>
+                                    <ul>
+                                        <li>🎮 Seu jogo favorito</li>
+                                        <li>🐕 Seu animal de estimação</li>
+                                        <li>🎨 Uma atividade legal que você fez</li>
+                                        <li>🏫 Algo interessante da escola</li>
+                                        <li>🌟 Uma descoberta que você fez</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    const news = [];
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        news.push({
+                            id: doc.id,
+                            ...data,
+                            date: data.timestamp ? new Date(data.timestamp.toDate()).toLocaleString('pt-BR') : 'Agora'
+                        });
+                    });
+
+                    newsGrid.innerHTML = news.map(news => this.createNewsCard(news)).join('');
+                    
+                    news.forEach(news => {
+                        const likeBtn = document.getElementById(`like-${news.id}`);
+                        if (likeBtn) {
+                            likeBtn.addEventListener('click', () => this.toggleLike(news.id));
+                        }
+                        const delBtn = document.getElementById(`del-${news.id}`);
+                        if (delBtn) {
+                            delBtn.addEventListener('click', () => this.deleteNews(news.id));
+                        }
+                    });
+                } catch (error) {
+                    console.error("Erro ao carregar notícias: ", error);
+                    this.showNotification('Erro ao carregar notícias!', 'error');
+                }
+            }
+
+            createNewsCard(news) {
+                const imageHtml = news.image 
+                    ? `<img src="${news.image}" alt="Imagem da notícia" class="news-image">`
+                    : '';
+                
+                const isEditMode = document.getElementById('editorSection').style.display !== 'none';
+                const deleteButton = isEditMode ? 
+                    `<button class="btn btn-secondary" id="del-${news.id}" style="margin-left:10px;">🗑️ Apagar</button>` : '';
+
+                return `
+                    <div class="news-card" data-id="${news.id}">
+                        ${imageHtml}
+                        <h3 class="news-title">${this.escapeHtml(news.title)}</h3>
+                        <p class="news-content">${this.escapeHtml(news.content)}</p>
+                        <div class="news-meta">
+                            <span class="reporter-name">👤 ${this.escapeHtml(news.reporterName)}</span>
+                            <div class="news-actions">
+                                <button class="like-btn" id="like-${news.id}" data-likes="${news.likes || 0}">
+                                    ${(news.likes || 0) > 0 ? '❤️' : '🤍'} ${news.likes || 0}
+                                </button>
+                                ${deleteButton}
+                                <span class="news-date">📅 ${news.date}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            async toggleLike(newsId) {
+                try {
+                    const newsRef = doc(db, "noticias", newsId);
+                    const currentLikes = parseInt(document.getElementById(`like-${newsId}`).getAttribute('data-likes')) || 0;
+                    await updateDoc(newsRef, {
+                        likes: currentLikes + 1
+                    });
+                    
+                    await this.loadNews();
+                    
+                    const likeBtn = document.getElementById(`like-${newsId}`);
+                    if (likeBtn) {
+                        likeBtn.style.transform = 'scale(1.2)';
+                        setTimeout(() => {
+                            likeBtn.style.transform = 'scale(1)';
+                        }, 200);
+                    }
+                } catch (error) {
+                    console.error("Erro ao curtir notícia: ", error);
+                    this.showNotification('Erro ao curtir notícia!', 'error');
+                }
+            }
+
+            async deleteNews(newsId) {
+                if (!confirm('Tem certeza que deseja apagar esta notícia?')) return;
+                
+                try {
+                    await deleteDoc(doc(db, "noticias", newsId));
+                    this.showNotification('Notícia apagada!', 'success');
+                    await this.loadNews();
+                } catch (error) {
+                    console.error("Erro ao apagar notícia: ", error);
+                    this.showNotification('Erro ao apagar notícia!', 'error');
+                }
+            }
+
+            toggleMode() {
+                const editorSection = document.getElementById('editorSection');
+                const toggleBtn = document.getElementById('toggleModeBtn');
+                
+                if (editorSection.style.display === 'none') {
+                    editorSection.style.display = 'block';
+                    toggleBtn.textContent = '👁️ Modo Leitura';
+                    toggleBtn.className = 'btn btn-secondary';
+                } else {
+                    editorSection.style.display = 'none';
+                    toggleBtn.textContent = '✏️ Modo Edição';
+                    toggleBtn.className = 'btn btn-primary';
+                }
+                
+                this.loadNews(); // Recarregar para mostrar/esconder botões de apagar
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            showNotification(message, type = 'info') {
+                const existingNotification = document.querySelector('.notification');
+                if (existingNotification) {
+                    existingNotification.remove();
+                }
+
+                const notification = document.createElement('div');
+                notification.className = `notification ${type}`;
+                notification.textContent = message;
+                
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    padding: 15px 20px;
+                    border-radius: 10px;
+                    color: white;
+                    font-weight: bold;
+                    z-index: 1000;
+                    animation: slideIn 0.3s ease-out;
+                    max-width: 300px;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                `;
+
+                const colors = {
+                    success: '#4ecdc4',
+                    error: '#ff6b6b',
+                    info: '#667eea'
+                };
+                notification.style.backgroundColor = colors[type] || colors.info;
+
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.style.animation = 'slideOut 0.3s ease-in';
+                    setTimeout(() => {
+                        if (notification.parentNode) {
+                            notification.remove();
+                        }
+                    }, 300);
+                }, 3000);
+            }
+
+            showWelcomeMessage() {
+                setTimeout(() => {
+                    this.showNotification('👋 Bem-vindo ao Jornal da Duda! Comece escrevendo sua primeira notícia!', 'info');
+                }, 1000);
+            }
+        }
+
+        // Inicializar quando a página carregar
+        document.addEventListener('DOMContentLoaded', () => {
+            new JornalFirebase();
+        });
+    </script>
+
+    <style>
+        /* Reset e configurações básicas */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Comic Neue', cursive, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            color: white;
+            padding: 20px 0;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        /* Main Content */
+        .main {
+            padding: 40px 0;
+            min-height: calc(100vh - 200px);
+        }
+
+        /* Editor Section */
+        .editor-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border: 3px solid #4ecdc4;
+        }
+
+        .editor-section h2 {
+            color: #ff6b6b;
+            margin-bottom: 25px;
+            text-align: center;
+            font-size: 1.8rem;
+        }
+
+        .editor-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            font-weight: bold;
+            color: #555;
+            font-size: 1.1rem;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-family: inherit;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #4ecdc4;
+            box-shadow: 0 0 10px rgba(78, 205, 196, 0.3);
+        }
+
+        .form-group input[type="file"] {
+            padding: 8px;
+            border: 2px dashed #4ecdc4;
+            background: #f8f9fa;
+            cursor: pointer;
+        }
+
+        .image-preview {
+            margin-top: 10px;
+            min-height: 100px;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+        }
+
+        .image-preview img {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 8px;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            min-width: 150px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+            color: white;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(45deg, #95a5a6, #bdc3c7);
+            color: white;
+            box-shadow: 0 4px 15px rgba(149, 165, 166, 0.3);
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(149, 165, 166, 0.4);
+        }
+
+        /* News Section */
+        .news-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border: 3px solid #ff6b6b;
+        }
+
+        .news-section h2 {
+            color: #4ecdc4;
+            margin-bottom: 25px;
+            text-align: center;
+            font-size: 1.8rem;
+        }
+
+        .news-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        .news-card {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            border: 2px solid #e9ecef;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .news-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+
+        .news-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+        }
+
+        .news-image {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+
+        .news-title {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            line-height: 1.3;
+        }
+
+        .news-content {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .news-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            color: #888;
+            border-top: 1px solid #e9ecef;
+            padding-top: 10px;
+        }
+
+        .reporter-name {
+            font-weight: bold;
+            color: #4ecdc4;
+        }
+
+        .news-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .like-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 5px 10px;
+            border-radius: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .like-btn:hover {
+            background: rgba(255, 107, 107, 0.1);
+            transform: scale(1.1);
+        }
+
+        .news-date {
+            font-size: 0.8rem;
+            color: #999;
+        }
+
+        /* Footer */
+        .footer {
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 20px 0;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            z-index: 100;
+        }
+
+        /* Animações */
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+
+        .no-news {
+            text-align: center;
+            padding: 40px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border: 2px dashed #4ecdc4;
+        }
+
+        .no-news h3 {
+            color: #4ecdc4;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+
+        .emoji-suggestions {
+            margin-top: 20px;
+            text-align: left;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .emoji-suggestions span {
+            font-weight: bold;
+            color: #666;
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        .emoji-suggestions ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .emoji-suggestions li {
+            padding: 5px 0;
+            color: #888;
+        }
+
+        .form-group input.valid {
+            border-color: #4ecdc4;
+            background-color: #f8fffe;
+        }
+
+        .form-group input.invalid {
+            border-color: #ff6b6b;
+            background-color: #fff8f8;
+        }
+
+        .form-group textarea.valid {
+            border-color: #4ecdc4;
+            background-color: #f8fffe;
+        }
+
+        .form-group textarea.invalid {
+            border-color: #ff6b6b;
+            background-color: #fff8f8;
+        }
+
+        /* Responsividade */
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 15px;
+            }
+            
+            .logo {
+                font-size: 2rem;
+            }
+            
+            .subtitle {
+                font-size: 1rem;
+            }
+            
+            .editor-section,
+            .news-section {
+                padding: 20px;
+                margin-bottom: 30px;
+            }
+            
+            .editor-section h2,
+            .news-section h2 {
+                font-size: 1.5rem;
+            }
+            
+            .form-actions {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn {
+                width: 100%;
+                max-width: 250px;
+            }
+            
+            .news-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .news-card {
+                padding: 15px;
+            }
+            
+            .news-title {
+                font-size: 1.2rem;
+            }
+            
+            .main {
+                padding: 20px 0 80px 0;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .logo {
+                font-size: 1.8rem;
+            }
+            
+            .editor-section,
+            .news-section {
+                padding: 15px;
+                border-radius: 15px;
+            }
+            
+            .form-group input,
+            .form-group textarea {
+                padding: 10px;
+                font-size: 0.9rem;
+            }
+            
+            .btn {
+                padding: 10px 20px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1 class="logo">📰 Jornal da Duda</h1>
+            <p class="subtitle">Notícias escritas por crianças, para crianças!</p>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <!-- Seção de Edição -->
+            <section class="editor-section" id="editorSection">
+                <h2>✏️ Escreva sua Notícia</h2>
+                <div class="editor-form">
+                    <div class="form-group">
+                        <label for="newsTitle">Título da Notícia:</label>
+                        <input type="text" id="newsTitle" placeholder="Digite o título da sua notícia..." maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="newsContent">Conteúdo da Notícia:</label>
+                        <textarea id="newsContent" placeholder="Conte sua história aqui..." rows="6"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="newsImage">Adicionar Imagem (opcional):</label>
+                        <input type="file" id="newsImage" accept="image/*">
+                        <div class="image-preview" id="imagePreview">
+                            <p>Nenhuma imagem selecionada</p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="reporterName">Seu Nome (Repórter):</label>
+                        <input type="text" id="reporterName" placeholder="Como você se chama?" maxlength="50">
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" id="publishBtn" class="btn btn-primary">📢 Publicar Notícia</button>
+                        <button type="button" id="clearBtn" class="btn btn-secondary">🧹 Limpar</button>
+                        <button type="button" id="toggleModeBtn" class="btn btn-secondary">👁️ Modo Leitura</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Seção de Visualização -->
+            <section class="news-section">
+                <h2>📰 Últimas Notícias</h2>
+                <div class="news-grid" id="newsGrid">
+                    <!-- As notícias serão inseridas aqui dinamicamente -->
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Jornal da Duda - Feito com ❤️ para crianças criativas!</p>
+        </div>
+    </footer>
+</body>
+</html> 
