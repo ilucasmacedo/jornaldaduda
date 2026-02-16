@@ -1,0 +1,29 @@
+{
+  "name": "jornal-da-duda",
+  "version": "1.0.0",
+  "description": "Jornal da Duda com banco de dados SQLite",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ilucasmacedo/jornaldaduda.git"
+  },
+  "keywords": [
+    "jornal",
+    "criancas",
+    "sqlite",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ilucasmacedo/jornaldaduda/issues"
+  },
+  "homepage": "https://github.com/ilucasmacedo/jornaldaduda#readme",
+  "dependencies": {
+    "express": "^5.2.1",
+    "sqlite3": "^5.1.7"
+  }
+}
