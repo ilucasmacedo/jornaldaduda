@@ -57,6 +57,10 @@
             margin: 0 auto 22px;
         }
 
+        .board.locked {
+            pointer-events: none;
+        }
+
         .card {
             aspect-ratio: 1;
             perspective: 800px;
@@ -279,6 +283,7 @@
             moves += 1;
             movesEl.textContent = String(moves);
             lock = true;
+            board.classList.add('locked');
 
             const match = firstCard.dataset.emoji === card.dataset.emoji;
             if (match) {
@@ -288,6 +293,7 @@
                 pairsEl.textContent = String(pairs);
                 firstCard = null;
                 lock = false;
+                board.classList.remove('locked');
 
                 if (pairs === EMOJIS.length) {
                     stopTimer();
@@ -303,7 +309,8 @@
                     card.setAttribute('aria-label', 'Carta virada');
                     firstCard = null;
                     lock = false;
-                }, 800);
+                    board.classList.remove('locked');
+                }, 900);
             }
         }
 
