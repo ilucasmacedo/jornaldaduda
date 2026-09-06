@@ -435,7 +435,7 @@
         .header {
             background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
             color: white;
-            padding: 20px 0;
+            padding: 20px 0 0;
             text-align: center;
             box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
@@ -449,6 +449,33 @@
         .subtitle {
             font-size: 1.2rem;
             opacity: 0.9;
+        }
+
+        .nav {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            padding: 16px 0 18px;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            text-decoration: none;
+            font-weight: 700;
+            padding: 8px 18px;
+            border-radius: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.45);
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .nav a:hover,
+        .nav a.active {
+            background: white;
+            color: #ff6b6b;
+            transform: translateY(-2px);
         }
 
         /* Main Content */
@@ -860,6 +887,10 @@
         <div class="container">
             <h1 class="logo">📰 Jornal da Duda</h1>
             <p class="subtitle">Notícias escritas por crianças, para crianças!</p>
+            <nav class="nav" aria-label="Menu principal">
+                <a href="index.html" class="active">📰 Notícias</a>
+                <a href="jogos.html">🎮 Jogos</a>
+            </nav>
         </div>
     </header>
 
@@ -912,7 +943,7 @@
 
     <footer class="footer">
         <div class="container">
-            <p>&copy; 2024 Jornal da Duda - Feito com ❤️ para crianças criativas!</p>
+            <p>&copy; 2026 Jornal da Duda - Feito com ❤️ para crianças criativas!</p>
         </div>
     </footer>
 </body>
